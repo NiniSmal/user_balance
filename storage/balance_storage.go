@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -91,17 +92,24 @@ func (b *BalanceStorage) Update(repl Replenishment) (int64, error) {
 func (b *BalanceStorage) Transfer(tr Transfer, ctx context.Context) error {
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin tx: %w", err)
 	}
+	defer tx.Rollback()
 
 	_, err = tx.Exec("UPDATE balances SET account_balance = account_balance -  $1, updated_at = $2 WHERE id_user = $3", tr.Amount, tr.UpdatedAt, tr.Sender)
 	if err != nil {
-		return tx.Rollback()
+		return fmt.Errorf("update balance for user %d: %w", tr.Sender, err)
 	}
+
 	_, err = b.db.Exec("UPDATE balances SET account_balance = account_balance + $1, updated_at = $2 WHERE id_user = $3", tr.Amount, tr.UpdatedAt, tr.Recipient)
 	if err != nil {
-		return tx.Rollback()
+		return fmt.Errorf("update balance for user %d: %w", tr.Recipient, err)
 	}
+
 	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
 	return nil
 }
